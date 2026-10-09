@@ -39,7 +39,7 @@ def request_device_code(client_id: str, scope: str = "repo", timeout: int = 20) 
     r = requests.post(
         GITHUB_DEVICE_CODE_URL,
         data={"client_id": client_id, "scope": scope},
-        headers={"Accept": "application/json", "User-Agent": "GitHubVulnTracker/0.3"},
+        headers={"Accept": "application/json", "User-Agent": "GitHubVulnTracker/0.4"},
         timeout=timeout,
     )
     if not r.ok:
@@ -67,7 +67,7 @@ def poll_device_token(client_id: str, device_code: str, interval: int = 5,
                 "device_code": device_code,
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
             },
-            headers={"Accept": "application/json", "User-Agent": "GitHubVulnTracker/0.3"},
+            headers={"Accept": "application/json", "User-Agent": "GitHubVulnTracker/0.4"},
             timeout=timeout,
         )
         if not r.ok:
@@ -97,7 +97,7 @@ class GitHubClient:
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": API_VERSION,
-            "User-Agent": "GitHubVulnTracker/0.3",
+            "User-Agent": "GitHubVulnTracker/0.4",
         })
 
     def _get(self, path: str, params=None):
