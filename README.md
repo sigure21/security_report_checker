@@ -2,6 +2,13 @@
 
 Windows용 로컬 GUI 취약점 제보 관리 도구입니다. GitHub Security Advisory와 버그바운티 제보를 같은 목록에서 관리합니다.
 
+## 빠른 시작
+
+1. `.\run.ps1`로 실행합니다. 버그바운티 제보만 기록할 때는 GitHub 로그인이 필요하지 않습니다.
+2. **+ 버그바운티**에서 대상과 제목을 입력합니다. 새 제보의 기본 상태는 `submitted`이며, 아직 제보 전이라면 `local`로 바꿉니다. 인정받은 제보는 `accepted`, 공개된 제보는 `published`를 선택합니다.
+3. 대시보드의 숫자 카드를 누르면 해당 제보 목록으로 이동합니다. **제보 목록**에서 출처와 상태로 좁히거나 `Ctrl+F`로 검색합니다. 목록의 내보내기는 현재 검색·필터 결과를, 대시보드의 **Excel 전체 내보내기**는 전체 제보를 저장합니다.
+4. GitHub Advisory를 자동으로 가져오려면 아래 **GitHub OAuth 연결** 절차를 완료한 뒤 저장소를 추가하고 동기화합니다.
+
 ## 주요 기능
 - GitHub Repository Security Advisory 동기화
 - 버그바운티 / 직접 제보 수동 등록 및 상태 관리
@@ -15,7 +22,6 @@ Windows용 로컬 GUI 취약점 제보 관리 도구입니다. GitHub Security A
 - GitHub repository URL 또는 advisory URL 붙여넣기로 저장소 자동 등록
 - 출처 / 상태 필터와 대상 / 플랫폼 / 프로그램 / 제보 번호 / 제목 / GHSA / CVE / 벤더 답변 검색
 - 개인 메모 및 벤더 답변 기록
-- 최근 변경 강조 표시
 - CSV / Excel(.xlsx) 내보내기
 - Excel에 `Vulnerability Reports` + `Change History` 시트 생성
 - SQLite 로컬 DB
@@ -23,8 +29,8 @@ Windows용 로컬 GUI 취약점 제보 관리 도구입니다. GitHub Security A
 - OAuth access token은 Windows 자격 증명 저장소(keyring)에 저장
 
 ## 버그바운티 제보 등록
-1. 대시보드의 **+ 버그바운티**를 클릭합니다. **+ 제보 등록** 또는 제보 목록의 **+ 추가**에서도 출처를 선택할 수 있습니다.
-2. 출처에서 **버그바운티**를 선택합니다. 기존 GitHub 제보는 **GitHub (수동)**으로 등록할 수 있습니다.
+1. 대시보드 또는 제보 목록의 **+ 버그바운티**를 클릭합니다.
+2. 기존 GitHub 제보를 직접 기록할 때는 **+ GitHub 제보**를 사용합니다.
 3. **대상**과 **제목**을 입력합니다. 대상에는 도메인, 서비스, 제품 등 점검한 대상을 기록합니다.
 4. 플랫폼, 프로그램, 제보 번호, 상태, Severity, CVE, 제보 URL, 메모를 필요한 만큼 입력하고 저장합니다.
 
@@ -34,12 +40,12 @@ Windows용 로컬 GUI 취약점 제보 관리 도구입니다. GitHub Security A
 
 제보 목록에서 `Ctrl+F`로 검색창에 바로 이동하고, 출처를 고르면 해당 출처의 상태만 필터에 표시됩니다. 대시보드의 최근 항목을 두 번 클릭하면 상세 화면으로 이동합니다. 상세 화면의 메모와 벤더 답변은 입력을 멈춘 뒤 자동 저장되며, 항목을 바꾸거나 앱을 닫을 때도 저장합니다. `Ctrl+S` 또는 **지금 저장**으로 즉시 저장할 수 있습니다.
 
-버그바운티에서 `accepted`는 프로그램이 제보를 인정한 상태, `published`는 제보 내용을 공개한 상태로 구분합니다. 공개 여부를 기록하려면 `published`를 선택하세요. 대시보드의 **Published**와 상태 필터는 GitHub와 버그바운티에 동일한 `published` 기준을 적용하며, `accepted`는 Published 건수에 포함하지 않습니다. 기존에 `accepted`로 저장한 제보는 자동 변경되지 않으므로 공개된 건만 **정보 수정**에서 `published`로 갱신할 수 있습니다.
+버그바운티에서 `accepted`는 프로그램이 제보를 인정한 상태, `published`는 제보 내용을 공개한 상태로 구분합니다. 공개 여부를 기록하려면 `published`를 선택하세요. 대시보드의 **공개 · published** 카드와 상태 필터는 GitHub와 버그바운티에 동일한 `published` 기준을 적용하며, `accepted`는 공개 건수에 포함하지 않습니다. 기존에 `accepted`로 저장한 제보는 자동 변경되지 않으므로 공개된 건만 **정보 수정**에서 `published`로 갱신할 수 있습니다.
 
 버그바운티 플랫폼 API 자동 동기화는 지원하지 않습니다. 버그바운티 제보 정보와 벤더 답변은 직접 입력하며 GitHub 로그인이 필요하지 않습니다. 버그바운티 대상은 GitHub 동기화 저장소 목록에 추가되지 않습니다.
 
 CSV와 Excel 내보내기에는 출처와 플랫폼 / 프로그램 / 제보 번호가 포함됩니다.
-검색 / 출처 / 상태 필터를 적용하면 해당 목록만 내보냅니다. Excel 변경 이력도 같은 항목만 포함합니다.
+제보 목록에서는 현재 검색 / 출처 / 상태 / CVE 필터에 맞는 항목만 내보내고, 대시보드에서는 전체 제보를 Excel로 내보냅니다. Excel 변경 이력도 내보낸 제보의 이력만 포함합니다.
 
 ## GitHub OAuth 연결 — 최초 1회
 이 프로그램은 데스크톱 앱에서 Client Secret을 보관하지 않기 위해 GitHub OAuth Device Flow를 사용합니다.
@@ -53,7 +59,7 @@ CSV와 Excel 내보내기에는 출처와 플랫폼 / 프로그램 / 제보 번�
 4. 발급된 **Client ID**를 VulnTracker → `GitHub 설정`에 입력
 5. **GitHub 로그인** 클릭
 6. 브라우저가 열리면 앱에 표시된 코드를 붙여넣고 승인
-7. 연결 완료 후 저장소를 등록하고 **연결 테스트 / 동기화** 실행
+7. 연결 완료 후 저장소를 등록하고 **저장소 동기화** 실행
 
 ### OAuth 권한 주의
 미공개 Repository Security Advisory를 읽기 위해 앱은 OAuth `repo` scope를 요청합니다.
@@ -79,9 +85,9 @@ GitHub의 Repository Security Advisory 웹 UI에서는 reporter/maintainer가 �
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\run.ps1
+```
 
 첫 실행에서는 Python 가상 환경과 의존성을 설치합니다. 이후에는 `requirements.txt`가 바뀌거나 환경이 손상된 경우에만 다시 설치합니다.
-```
 
 ## EXE 빌드
 기존 `VulnTracker.exe`가 실행 중이면 먼저 종료합니다.
