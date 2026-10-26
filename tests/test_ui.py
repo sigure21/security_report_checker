@@ -227,6 +227,33 @@ class UiIntegrationTests(unittest.TestCase):
                          [("submitted", "accepted")])
         self.assertEqual(self.db.list_repositories(), [])
 
+    def test_bounty_published_is_distinct_from_accepted_and_uses_shared_filter(self):
+        report_id = self.db.upsert_report(self.bounty(state="accepted"))
+        github_id = self.db.upsert_report(self.github(state="published"))
+        self.window.refresh_all()
+        self.assertEqual(self.window.card_published.text(), "1")
+
+        dialog = main.ReportDialog(self.window, report=self.db.get_report(report_id))
+        self.assertIn("published", [dialog.state.itemText(i) for i in range(dialog.state.count())])
+        dialog.state.setCurrentText("published")
+        dialog.accept()
+        self.assertEqual(dialog.result(), QDialog.Accepted)
+        self.db.update_report(report_id, dialog.data())
+        self.window.refresh_all()
+
+        self.assertEqual(self.db.get_report(report_id)["state"], "published")
+        self.assertEqual(self.window.card_published.text(), "2")
+        self.window.state_filter.setCurrentText("published")
+        self.assertEqual(set(self.visible_ids()), {report_id, github_id})
+        self.window.source_filter.setCurrentIndex(self.window.source_filter.findData("github"))
+        self.assertEqual(self.visible_ids(), [github_id])
+        self.window.source_filter.setCurrentIndex(self.window.source_filter.findData("bug_bounty"))
+        self.assertEqual(self.visible_ids(), [report_id])
+        status_events = [event for event in self.db.list_events(report_id)
+                         if event["event_type"] == "status"]
+        self.assertEqual([(event["old_value"], event["new_value"]) for event in status_events],
+                         [("accepted", "published")])
+
     def test_source_state_and_metadata_search_filters_compose(self):
         bounty_id, github_id, manual_id = self.seed_mixed_reports()
         self.assertEqual(set(self.visible_ids()), {bounty_id, github_id, manual_id})

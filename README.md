@@ -9,7 +9,7 @@ Windows용 로컬 GUI 취약점 제보 관리 도구입니다. GitHub Security A
 - 수동 등록한 제보의 제목 / 상태 / Severity / CVE / URL 등 상세 정보 수정
 - 현재 GitHub 사용자가 author / collaborator / credited user인 advisory만 수집
 - GitHub `local`, `triage`, `draft`, `published`, `closed` 상태 추적
-- 버그바운티 `local`, `submitted`, `triage`, `accepted`, `duplicate`, `informative`, `not_applicable`, `resolved`, `closed` 상태 추적
+- 버그바운티 `local`, `submitted`, `triage`, `accepted`, `published`, `duplicate`, `informative`, `not_applicable`, `resolved`, `closed` 상태 추적
 - CVE 발급 감지 및 변경 이력 기록
 - Severity / GitHub `updated_at` 변경 이력 기록
 - GitHub repository URL 또는 advisory URL 붙여넣기로 저장소 자동 등록
@@ -31,6 +31,10 @@ Windows용 로컬 GUI 취약점 제보 관리 도구입니다. GitHub Security A
 플랫폼은 `HackerOne`, `Bugcrowd`, `Intigriti`, `YesWeHack`, `직접 제보`, `기타` 중 선택하거나 직접 입력할 수 있습니다. 프로그램은 참여한 프로그램 또는 벤더 이름이며, 제보 번호에는 해당 플랫폼의 report ID나 내부 관리 번호를 기록합니다.
 
 등록한 항목을 선택한 뒤 **정보 수정**으로 상태와 제보 정보를 갱신할 수 있습니다. GitHub에서 동기화한 항목의 핵심 정보는 GitHub 동기화로 관리하며, 개인 메모와 벤더 답변을 앱에서 저장할 수 있습니다.
+
+제보 목록에서 `Ctrl+F`로 검색창에 바로 이동하고, 출처를 고르면 해당 출처의 상태만 필터에 표시됩니다. 대시보드의 최근 항목을 두 번 클릭하면 상세 화면으로 이동합니다. 상세 화면의 메모와 벤더 답변은 입력을 멈춘 뒤 자동 저장되며, 항목을 바꾸거나 앱을 닫을 때도 저장합니다. `Ctrl+S` 또는 **지금 저장**으로 즉시 저장할 수 있습니다.
+
+버그바운티에서 `accepted`는 프로그램이 제보를 인정한 상태, `published`는 제보 내용을 공개한 상태로 구분합니다. 공개 여부를 기록하려면 `published`를 선택하세요. 대시보드의 **Published**와 상태 필터는 GitHub와 버그바운티에 동일한 `published` 기준을 적용하며, `accepted`는 Published 건수에 포함하지 않습니다. 기존에 `accepted`로 저장한 제보는 자동 변경되지 않으므로 공개된 건만 **정보 수정**에서 `published`로 갱신할 수 있습니다.
 
 버그바운티 플랫폼 API 자동 동기화는 지원하지 않습니다. 버그바운티 제보 정보와 벤더 답변은 직접 입력하며 GitHub 로그인이 필요하지 않습니다. 버그바운티 대상은 GitHub 동기화 저장소 목록에 추가되지 않습니다.
 
@@ -75,6 +79,8 @@ GitHub의 Repository Security Advisory 웹 UI에서는 reporter/maintainer가 �
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\run.ps1
+
+첫 실행에서는 Python 가상 환경과 의존성을 설치합니다. 이후에는 `requirements.txt`가 바뀌거나 환경이 손상된 경우에만 다시 설치합니다.
 ```
 
 ## EXE 빌드

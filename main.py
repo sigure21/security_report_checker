@@ -11,7 +11,7 @@ import keyring
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
-from PySide6.QtCore import QThread, Signal, Qt, QSettings
+from PySide6.QtCore import QThread, Signal, Qt, QSettings, QTimer
 from PySide6.QtGui import QAction, QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QApplication, QAbstractItemView, QComboBox, QDialog, QDialogButtonBox,
@@ -29,7 +29,7 @@ KEYRING_USER = "github_oauth_token"
 KEYRING_REFRESH = "github_oauth_refresh_token"
 OAUTH_SCOPE = "repo"
 GITHUB_STATES = ["local", "triage", "draft", "published", "closed"]
-BOUNTY_STATES = ["local", "submitted", "triage", "accepted", "duplicate", "informative",
+BOUNTY_STATES = ["local", "submitted", "triage", "accepted", "published", "duplicate", "informative",
                  "not_applicable", "resolved", "closed"]
 ALL_STATES = list(dict.fromkeys(GITHUB_STATES + BOUNTY_STATES))
 SOURCE_LABELS = {"github": "GitHub (동기화)", "manual": "GitHub (수동)", "bug_bounty": "버그바운티"}
@@ -123,13 +123,15 @@ class ReportDialog(QDialog):
         self.ghsa = QLineEdit()
         self.cve = QLineEdit()
         self.state = QComboBox()
+        self.state_help = QLabel("accepted: 제보가 인정됨  ·  published: 제보가 공개됨 (Published 통계에 포함)")
+        self.state_help.setWordWrap(True)
         self.severity = QComboBox(); self.severity.addItems(["", "none", "low", "moderate", "medium", "high", "critical"])
         self.url = QLineEdit(); self.url.setPlaceholderText("제보 페이지 URL (선택)")
         self.notes = QPlainTextEdit(); self.notes.setMaximumHeight(100)
         for label, widget in [("출처", self.source), ("대상 / 저장소", self.repo),
                               ("플랫폼", self.platform), ("프로그램", self.program),
                               ("제보 번호", self.report_reference), ("제목", self.title), ("GHSA", self.ghsa),
-                              ("CVE", self.cve), ("상태", self.state), ("Severity", self.severity),
+                              ("CVE", self.cve), ("상태", self.state), ("상태 기준", self.state_help), ("Severity", self.severity),
                               ("URL", self.url), ("메모", self.notes)]:
             self.form.addRow(label, widget)
         self.source.setCurrentIndex(self.source.findData(self.report.get("source", source)))
@@ -156,6 +158,7 @@ class ReportDialog(QDialog):
         for widget in [self.platform, self.program, self.report_reference]:
             self.form.setRowVisible(widget, bounty)
         self.form.setRowVisible(self.ghsa, not bounty)
+        self.form.setRowVisible(self.state_help, bounty)
         self.repo.setPlaceholderText("서비스 / 도메인 / 앱 이름" if bounty else "owner/repository 또는 GitHub URL")
         previous = self.state.currentText()
         self.state.clear(); self.state.addItems(BOUNTY_STATES if bounty else GITHUB_STATES)
@@ -196,6 +199,12 @@ class MainWindow(QMainWindow):
         self.db = Database()
         self.worker = None
         self.current_report_id = None
+        self._loading_detail = False
+        self._detail_dirty = False
+        self._detail_save_timer = QTimer(self)
+        self._detail_save_timer.setSingleShot(True)
+        self._detail_save_timer.setInterval(800)
+        self._detail_save_timer.timeout.connect(self._autosave_detail)
         self.settings = QSettings("LocalTools", "GitHubVulnTracker")
         self.auth_worker = None
         self.setWindowTitle("Vulnerability Tracker v0.4")
@@ -218,6 +227,8 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.stack, 1); self.show_page(0)
         a = QAction("취약점 추가", self); a.setShortcut("Ctrl+N"); a.triggered.connect(self.add_report); self.addAction(a)
         e = QAction("Excel 내보내기", self); e.setShortcut("Ctrl+E"); e.triggered.connect(self.export_xlsx); self.addAction(e)
+        find = QAction("제보 검색", self); find.setShortcut("Ctrl+F"); find.triggered.connect(self.focus_search); self.addAction(find)
+        save = QAction("메모 저장", self); save.setShortcut("Ctrl+S"); save.triggered.connect(self.save_detail); self.addAction(save)
 
     def _dashboard_page(self):
         w = QWidget(); l = QVBoxLayout(w); l.setContentsMargins(28,24,28,24)
@@ -236,7 +247,10 @@ class MainWindow(QMainWindow):
             b = QPushButton(text); b.clicked.connect(fn); h.addWidget(b)
         h.addStretch(); l.addLayout(h)
         lab = QLabel("최근 업데이트"); lab.setObjectName("sectionTitle"); l.addWidget(lab)
-        self.recent_table = self._make_table(); l.addWidget(self.recent_table)
+        self.recent_table = self._make_table()
+        self.recent_table.cellDoubleClicked.connect(self.open_recent_report)
+        self.recent_table.setToolTip("항목을 두 번 클릭하면 제보 상세 화면으로 이동합니다.")
+        l.addWidget(self.recent_table)
         return w
 
     def _stat_card(self, layout, label):
@@ -257,13 +271,15 @@ class MainWindow(QMainWindow):
         w = QWidget(); l = QVBoxLayout(w); l.setContentsMargins(28,24,28,24)
         title = QLabel("제보 목록"); title.setObjectName("pageTitle"); l.addWidget(title)
         controls = QHBoxLayout()
-        self.search = QLineEdit(); self.search.setPlaceholderText("대상 / 플랫폼 / 프로그램 / 제보 번호 / 제목 / GHSA / CVE 검색"); self.search.textChanged.connect(self.refresh_reports)
+        self.search = QLineEdit(); self.search.setPlaceholderText("대상 / 플랫폼 / 프로그램 / 제보 번호 / 제목 / GHSA / CVE 검색"); self.search.setClearButtonEnabled(True); self.search.textChanged.connect(self.refresh_reports)
         self.state_filter = QComboBox(); self.state_filter.addItems(["전체"] + ALL_STATES); self.state_filter.currentTextChanged.connect(self.refresh_reports)
-        self.source_filter = QComboBox(); self.source_filter.addItem("모든 출처", ""); self.source_filter.addItem("GitHub", "github"); self.source_filter.addItem("버그바운티", "bug_bounty"); self.source_filter.currentIndexChanged.connect(self.refresh_reports)
-        controls.addWidget(self.search,1); controls.addWidget(self.source_filter); controls.addWidget(self.state_filter)
+        self.source_filter = QComboBox(); self.source_filter.addItem("모든 출처", ""); self.source_filter.addItem("GitHub", "github"); self.source_filter.addItem("버그바운티", "bug_bounty"); self.source_filter.currentIndexChanged.connect(self._source_filter_changed)
+        controls.addWidget(self.search,1); controls.addWidget(QLabel("출처")); controls.addWidget(self.source_filter); controls.addWidget(QLabel("상태")); controls.addWidget(self.state_filter)
         for text, fn in [("+ 추가", self.add_report), ("GitHub 링크", self.add_repo_from_link_dialog), ("GitHub 동기화", self.sync_github), ("CSV", self.export_csv), ("Excel", self.export_xlsx)]:
             b = QPushButton(text); b.clicked.connect(fn); controls.addWidget(b)
         l.addLayout(controls)
+        self.result_count = QLabel("검색 결과 0건")
+        l.addWidget(self.result_count)
         splitter = QSplitter(Qt.Horizontal)
         self.report_table = self._make_table(); self.report_table.itemSelectionChanged.connect(self.show_selected_report); self.report_table.cellDoubleClicked.connect(lambda r,c:self.open_selected_url()); splitter.addWidget(self.report_table)
         detail = QFrame(); detail.setObjectName("detail"); dl = QVBoxLayout(detail)
@@ -272,11 +288,18 @@ class MainWindow(QMainWindow):
         self.detail_history = QPlainTextEdit(); self.detail_history.setReadOnly(True); self.detail_history.setMaximumHeight(150)
         self.detail_vendor = QPlainTextEdit(); self.detail_vendor.setPlaceholderText("제보 페이지에서 확인한 벤더 / 프로그램 답변을 붙여넣으세요."); self.detail_vendor.setMaximumHeight(120)
         self.detail_notes = QPlainTextEdit(); self.detail_notes.setPlaceholderText("분석 메모, 재현 조건, 후속 계획 등")
+        self.detail_vendor.textChanged.connect(self._detail_edited)
+        self.detail_notes.textChanged.connect(self._detail_edited)
         for widget in [self.detail_title, self.detail_meta, QLabel("변경 이력"), self.detail_history, QLabel("벤더 답변"), self.detail_vendor, QLabel("개인 메모"), self.detail_notes]: dl.addWidget(widget)
+        self.detail_save_status = QLabel("메모와 벤더 답변은 입력 후 자동 저장됩니다.")
+        dl.addWidget(self.detail_save_status)
         br = QHBoxLayout()
         self.edit_button = QPushButton("정보 수정"); self.edit_button.clicked.connect(self.edit_selected); self.edit_button.setEnabled(False); br.addWidget(self.edit_button)
-        for text, fn in [("저장", self.save_detail), ("제보 열기", self.open_selected_url), ("삭제", self.delete_selected)]:
-            b=QPushButton(text); b.clicked.connect(fn); br.addWidget(b)
+        self.save_button = QPushButton("지금 저장"); self.save_button.clicked.connect(self.save_detail); br.addWidget(self.save_button)
+        self.open_button = QPushButton("제보 열기"); self.open_button.clicked.connect(self.open_selected_url); br.addWidget(self.open_button)
+        self.delete_button = QPushButton("삭제"); self.delete_button.clicked.connect(self.delete_selected); br.addWidget(self.delete_button)
+        for button in (self.save_button, self.open_button, self.delete_button):
+            button.setEnabled(False)
         dl.addLayout(br); splitter.addWidget(detail); splitter.setSizes([980,420]); l.addWidget(splitter)
         return w
 
@@ -335,7 +358,40 @@ class MainWindow(QMainWindow):
         for i,b in enumerate([self.btn_dashboard,self.btn_reports,self.btn_settings]): b.setChecked(i==idx)
         if idx==2: self.refresh_repos()
 
-    def refresh_all(self): self.refresh_reports(); self.refresh_dashboard(); self.refresh_repos()
+    def focus_search(self):
+        self.show_page(1)
+        self.search.setFocus()
+
+    def _source_filter_changed(self):
+        previous = self.state_filter.currentText()
+        source = self.source_filter.currentData()
+        states = BOUNTY_STATES if source == "bug_bounty" else GITHUB_STATES if source == "github" else ALL_STATES
+        self.state_filter.blockSignals(True)
+        self.state_filter.clear()
+        self.state_filter.addItems(["전체"] + states)
+        self.state_filter.setCurrentText(previous if previous in states else "전체")
+        self.state_filter.blockSignals(False)
+        self.refresh_reports()
+
+    def open_recent_report(self, row, _column):
+        if not self._save_detail_edits():
+            return
+        report_id = int(self.recent_table.item(row, REPORT_ID_COLUMN).text())
+        for widget in (self.search, self.source_filter, self.state_filter):
+            widget.blockSignals(True)
+        self.search.clear()
+        self.source_filter.setCurrentIndex(0)
+        self.state_filter.clear()
+        self.state_filter.addItems(["전체"] + ALL_STATES)
+        for widget in (self.search, self.source_filter, self.state_filter):
+            widget.blockSignals(False)
+        self.current_report_id = report_id
+        self.refresh_reports()
+        self.show_page(1)
+
+    def refresh_all(self):
+        if not self._save_detail_edits(): return
+        self.refresh_reports(); self.refresh_dashboard(); self.refresh_repos()
 
     def filtered_reports(self):
         rows=self.db.list_reports(); q=self.search.text().strip().lower() if hasattr(self,"search") else ""; st=self.state_filter.currentText() if hasattr(self,"state_filter") else "전체"; out=[]
@@ -373,7 +429,15 @@ class MainWindow(QMainWindow):
     def refresh_reports(self):
         if not hasattr(self, "report_table"): return
         selected_id = self.current_report_id
-        self.fill_table(self.report_table, self.filtered_reports())
+        rows = self.filtered_reports()
+        total = len(self.db.list_reports())
+        if total == 0:
+            self.result_count.setText("제보가 없습니다. + 추가로 첫 제보를 등록하세요.")
+        elif not rows:
+            self.result_count.setText(f"검색 결과 0건 / 전체 {total}건 · 검색어나 필터를 확인하세요.")
+        else:
+            self.result_count.setText(f"검색 결과 {len(rows)}건 / 전체 {total}건")
+        self.fill_table(self.report_table, rows)
         for row in range(self.report_table.rowCount()):
             if int(self.report_table.item(row, REPORT_ID_COLUMN).text()) == selected_id:
                 self.report_table.selectRow(row)
@@ -386,6 +450,7 @@ class MainWindow(QMainWindow):
         changed=sum(1 for r in rows if self.change_label(r) in {"STATUS","CVE","VENDOR"}); self.card_changed.setText(str(changed)); self.fill_table(self.recent_table,rows[:12])
 
     def add_report(self, checked=False, *, source="manual"):
+        if not self._save_detail_edits(): return
         d=ReportDialog(self, source=source)
         if d.exec()==QDialog.Accepted:
             data=d.data()
@@ -401,7 +466,8 @@ class MainWindow(QMainWindow):
             self.refresh_all(); self.show_page(1)
 
     def edit_selected(self):
-        rid = self.selected_report_id() or self.current_report_id
+        if not self._save_detail_edits(): return
+        rid = self.current_report_id
         if not rid: return
         report = self.db.get_report(rid)
         if not report: return
@@ -426,14 +492,24 @@ class MainWindow(QMainWindow):
         return int(self.report_table.item(self.report_table.currentRow(),REPORT_ID_COLUMN).text())
 
     def show_selected_report(self):
-        rid=self.selected_report_id(); self.current_report_id=rid
+        rid=self.selected_report_id()
+        if self._detail_dirty and not self._save_detail_edits():
+            return
+        self.current_report_id=rid
         self.edit_button.setEnabled(False)
+        self.save_button.setEnabled(bool(rid))
+        self.delete_button.setEnabled(bool(rid))
+        self._loading_detail = True
         if not rid:
             self.detail_title.setText("항목을 선택하세요"); self.detail_meta.clear()
             self.detail_notes.clear(); self.detail_vendor.clear(); self.detail_history.clear()
+            self.open_button.setEnabled(False)
+            self.detail_save_status.setText("항목을 선택하면 메모를 입력할 수 있습니다.")
+            self._loading_detail = False
             return
         r=self.db.get_report(rid); self.detail_title.setText(r["title"])
         self.edit_button.setEnabled(r["source"] != "github")
+        self.open_button.setEnabled(bool(r["html_url"]))
         meta = [r["repository"], f"출처: {SOURCE_LABELS.get(r['source'], r['source'])}"]
         if r["source"] == "bug_bounty":
             meta += [f"플랫폼: {r['platform'] or '-'}", f"프로그램: {r['program'] or '-'}", f"제보 번호: {r['report_reference'] or '-'}"]
@@ -443,26 +519,62 @@ class MainWindow(QMainWindow):
         if r["synced_at"]: meta.append(f"GitHub 동기화: {fmt_date(r['synced_at'])}")
         self.detail_meta.setText("\n".join(meta))
         self.detail_notes.setPlainText(r["notes"] or ""); self.detail_vendor.setPlainText(r["vendor_response"] or "")
+        self._refresh_detail_history(rid)
+        self.detail_save_status.setText("메모와 벤더 답변은 입력 후 자동 저장됩니다.")
+        self._loading_detail = False
+
+    def _refresh_detail_history(self, report_id):
         lines=[]
-        for e in self.db.list_events(rid,30):
+        for e in self.db.list_events(report_id,30):
             old=(e["old_value"] or "-").replace("\n"," ")[:80]; new=(e["new_value"] or "-").replace("\n"," ")[:80]
             lines.append(f"{fmt_date(e['created_at'])}  {e['event_type']}: {old} → {new}")
         self.detail_history.setPlainText("\n".join(lines) if lines else "변경 이력 없음")
 
+    def _detail_edited(self):
+        if self._loading_detail or not self.current_report_id:
+            return
+        self._detail_dirty = True
+        self.detail_save_status.setText("자동 저장 대기 중...")
+        self._detail_save_timer.start()
+
+    def _save_detail_edits(self):
+        if not self._detail_dirty or not self.current_report_id:
+            return True
+        self._detail_save_timer.stop()
+        try:
+            self.db.update_notes(self.current_report_id, self.detail_notes.toPlainText())
+            self.db.update_vendor_response(self.current_report_id, self.detail_vendor.toPlainText())
+        except (ValueError, sqlite3.Error) as error:
+            self.detail_save_status.setText("저장 실패 · 다시 시도하세요.")
+            QMessageBox.warning(self, "메모 저장 실패", str(error))
+            return False
+        self._detail_dirty = False
+        self.detail_save_status.setText("저장됨")
+        return True
+
+    def _autosave_detail(self):
+        if self._save_detail_edits() and self.current_report_id:
+            self._refresh_detail_history(self.current_report_id)
+            self.refresh_dashboard()
+
     def save_detail(self):
         if not self.current_report_id: return
-        self.db.update_notes(self.current_report_id,self.detail_notes.toPlainText()); self.db.update_vendor_response(self.current_report_id,self.detail_vendor.toPlainText()); self.refresh_all(); self.sync_status.setText("상세 정보 저장됨")
+        if self._save_detail_edits():
+            self.refresh_all()
+            self.sync_status.setText("상세 정보 저장됨")
 
     def open_selected_url(self):
-        rid=self.selected_report_id() or self.current_report_id
+        rid=self.current_report_id
         if not rid: return
         r=self.db.get_report(rid)
         if r["html_url"]: webbrowser.open(r["html_url"])
         else: QMessageBox.information(self,"URL 없음","등록된 제보 URL이 없습니다.")
 
     def delete_selected(self):
-        rid=self.selected_report_id() or self.current_report_id
+        rid=self.current_report_id
         if rid and QMessageBox.question(self,"삭제","이 항목을 삭제하시겠습니까?")==QMessageBox.Yes:
+            self._detail_save_timer.stop()
+            self._detail_dirty = False
             self.db.delete_report(rid); self.current_report_id=None; self.refresh_all()
 
     def refresh_connection_status(self):
@@ -546,6 +658,7 @@ class MainWindow(QMainWindow):
         if hasattr(self,"repo_list"): self.repo_list.clear(); self.repo_list.addItems(self.db.list_repositories())
 
     def sync_github(self):
+        if not self._save_detail_edits(): return
         try: token=keyring.get_password(KEYRING_SERVICE,KEYRING_USER)
         except Exception: token=None
         repos=self.db.list_repositories()
@@ -562,6 +675,7 @@ class MainWindow(QMainWindow):
     def _export_rows(self): return self.filtered_reports() if hasattr(self,"report_table") else self.db.list_reports()
 
     def export_csv(self):
+        if not self._save_detail_edits(): return
         path,_=QFileDialog.getSaveFileName(self,"CSV 내보내기","vulnerability_reports.csv","CSV (*.csv)")
         if not path: return
         fields=["repository","title","state","severity","cve_id","ghsa_id","submitted_at","updated_at","last_change_at","vendor_response_at","vendor_response","notes","html_url","source","platform","program","report_reference"]
@@ -571,6 +685,7 @@ class MainWindow(QMainWindow):
         self.sync_status.setText(f"CSV 저장: {path}")
 
     def export_xlsx(self):
+        if not self._save_detail_edits(): return
         path,_=QFileDialog.getSaveFileName(self,"Excel 내보내기","vulnerability_reports.xlsx","Excel (*.xlsx)")
         if not path: return
         wb=Workbook(); ws=wb.active; ws.title="Vulnerability Reports"
@@ -591,6 +706,9 @@ class MainWindow(QMainWindow):
         ev.freeze_panes="A2"; wb.save(path); self.sync_status.setText(f"Excel 저장: {path}")
 
     def closeEvent(self,event):
+        if not self._save_detail_edits():
+            event.ignore()
+            return
         if self.auth_worker and self.auth_worker.isRunning(): self.auth_worker.cancel()
         self.db.close(); super().closeEvent(event)
 
