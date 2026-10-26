@@ -59,7 +59,18 @@ def poll_device_token(client_id: str, device_code: str, interval: int = 5,
     while time.monotonic() < deadline:
         if should_stop and should_stop():
             raise GitHubAPIError("GitHub 로그인이 취소되었습니다.")
-        time.sleep(wait)
+        sleep_until = min(deadline, time.monotonic() + wait)
+        while time.monotonic() < sleep_until:
+            if should_stop and should_stop():
+                raise GitHubAPIError("GitHub 로그인이 취소되었습니다.")
+            remaining = sleep_until - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.2, remaining))
+        if should_stop and should_stop():
+            raise GitHubAPIError("GitHub 로그인이 취소되었습니다.")
+        if time.monotonic() >= deadline:
+            break
         r = requests.post(
             GITHUB_ACCESS_TOKEN_URL,
             data={
